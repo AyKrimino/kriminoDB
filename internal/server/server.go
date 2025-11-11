@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"bufio"
@@ -6,12 +6,11 @@ import (
 	"log"
 	"net"
 	"strings"
-	"sync"
+
+	"github.com/AyKrimino/kriminoDB/internal/store"
 )
 
-type DB interface {
-	Set(key string, value []byte)
-	Get(key string) ([]byte, bool)
+type Server interface {
 	Start() error
 }
 
@@ -20,22 +19,20 @@ type Config struct {
 	Port string
 }
 
-type Store struct {
-	Config
-
-	mu   sync.RWMutex
-	data map[string][]byte
+type server struct {
+	config Config
+	store store.DB
 }
 
-func NewStore(conf Config) DB {
-	return &Store{
-		Config: conf,
-		data:   make(map[string][]byte),
+func NewServer(s store.DB, conf Config) Server {
+	return &server{
+		store: s,
+		config: conf,
 	}
 }
 
-func (s *Store) Start() error {
-	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%s", s.Host, s.Port))
+func (s *server) Start() error {
+	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%s", s.config.Host, s.config.Port))
 	if err != nil {
 		return err
 	}
@@ -52,7 +49,7 @@ func (s *Store) Start() error {
 	}
 }
 
-func (s *Store) handleConn(conn net.Conn) {
+func (s *server) handleConn(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	for {
 		msg, err := reader.ReadString('\n')
@@ -71,14 +68,14 @@ func (s *Store) handleConn(conn net.Conn) {
 			if len(args) < 2 {
 				conn.Write([]byte("-ERR wrong number of arguments for 'set' command\r\n"))
 			} else {
-				s.Set(args[0], []byte(args[1]))
+				s.store.Set(args[0], []byte(args[1]))
 				conn.Write([]byte("+OK\r\n"))
 			}
 		case "GET", "get":
 			if len(args) != 1 {
 				conn.Write([]byte("-ERR wrong number of arguments for 'get' command\r\n"))
 			} else {
-				val, found := s.Get(args[0])
+				val, found := s.store.Get(args[0])
 				if found {
 					conn.Write(fmt.Appendf(nil, "%s=%s\n", args[0], string(val)))
 				}
@@ -91,7 +88,7 @@ func (s *Store) handleConn(conn net.Conn) {
 	}
 }
 
-func (s *Store) parseCommands(msg string) (string, []string, error) {
+func (s *server) parseCommands(msg string) (string, []string, error) {
 	msg = strings.TrimSpace(msg)
 	if msg == "" {
 		return "", nil, fmt.Errorf("empty command")
@@ -119,34 +116,4 @@ func (s *Store) parseCommands(msg string) (string, []string, error) {
 	}
 
 	return cmd, parts, nil
-}
-
-func (s *Store) Set(key string, value []byte) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.data[key] = value
-}
-
-func (s *Store) Get(key string) ([]byte, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	val, ok := s.data[key]
-	if !ok {
-		return nil, false
-	}
-	return val, true
-}
-
-func main() {
-	conf := Config{
-		Host: "localhost",
-		Port: "3000",
-	}
-
-	s := NewStore(conf)
-
-	err := s.Start()
-	if err != nil {
-		log.Fatal(err)
-	}
 }
