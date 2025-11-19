@@ -1,3 +1,5 @@
+// Package server implements a lightweight TCP server for handling key-value commands. 
+// It accepts SET and GET operations and
 package server
 
 import (
@@ -10,15 +12,19 @@ import (
 	"github.com/AyKrimino/kriminoDB/internal/store"
 )
 
+// Server defines the behavior of a TCP command server.
 type Server interface {
 	Start() error
 }
 
+// Config holds the network configuration for the server.
 type Config struct {
 	Host string
 	Port string
 }
 
+// server is the concrete implementation of the Server interface.
+// It wraps a key–value store and provides TCP command handling logic.
 type server struct {
 	config Config
 	store store.DB
@@ -31,6 +37,9 @@ func NewServer(s store.DB, conf Config) Server {
 	}
 }
 
+// Start initializes the TCP listener and continuously accepts
+// incoming client connections. Each connection is handled in
+// its own goroutine to allow concurrent execution.
 func (s *server) Start() error {
 	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%s", s.config.Host, s.config.Port))
 	if err != nil {
