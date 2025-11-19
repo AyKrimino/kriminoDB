@@ -36,6 +36,7 @@ func (s *server) Start() error {
 	if err != nil {
 		return err
 	}
+	log.Printf("[SERVER] Listening on %s:%s", s.config.Host, s.config.Port)
 
 	for {
 		conn, err := listener.Accept()
