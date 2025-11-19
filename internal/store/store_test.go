@@ -22,3 +22,33 @@ func TestStoreSetGet(t *testing.T) {
 	require.Nil(t, v)
 	require.False(t, exists)
 }
+
+func TestStoreGetPendingUpdates(t *testing.T) {
+	s := NewStore().(*Store)
+
+	// SET test hello
+	s.Set("test", []byte("hello"))
+	pending := s.GetPendingUpdates()
+	require.NotZero(t, pending)
+
+	dv, ok := pending["test"]
+	require.True(t, ok)
+	require.NotNil(t, dv)
+
+	value, version := dv.value, dv.version
+	assert.Equal(t, []byte("hello"), value)
+
+	// SET test world
+	s.Set("test", []byte("world"))
+	pending = s.GetPendingUpdates()
+	require.NotZero(t, pending)
+
+	dv, ok = pending["test"]
+	require.True(t, ok)
+	require.NotNil(t, dv)
+
+	value, newVersion := dv.value, dv.version
+	assert.Equal(t, []byte("world"), value)
+
+	assert.Greater(t, newVersion, version)
+}

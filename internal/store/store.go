@@ -2,6 +2,7 @@
 package store
 
 import (
+	"maps"
 	"sync"
 	"time"
 )
@@ -21,7 +22,7 @@ type dataValue struct {
 func NewDataValue(value []byte) *dataValue {
 	return &dataValue{
 		value: value,
-		version: time.Now().Unix(),
+		version: time.Now().UnixNano(),
 	}
 }
 
@@ -29,26 +30,42 @@ func NewDataValue(value []byte) *dataValue {
 type Store struct {
 	mu   sync.RWMutex
 	data map[string]dataValue
+	pendingUpdates map[string]dataValue // TODO: add capacity
 }
 
 func NewStore() DB {
 	return &Store{
 		data: make(map[string]dataValue),
+		pendingUpdates: make(map[string]dataValue),
 	}
 }
 
 func (s *Store) Set(key string, value []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.data[key] = *NewDataValue(value)
+
+	dv := *NewDataValue(value)
+	s.data[key] = dv
+	s.pendingUpdates[key] = dv
 }
 
 func (s *Store) Get(key string) ([]byte, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	val, ok := s.data[key]
 	if !ok {
 		return nil, false
 	}
 	return val.value, true
+}
+
+// GetPendingUpdates returns a copy of pending updates for gossip operations
+func (s* Store) GetPendingUpdates() map[string]dataValue {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	pending := make(map[string]dataValue)
+	maps.Copy(pending, s.pendingUpdates)
+	return pending
 }
