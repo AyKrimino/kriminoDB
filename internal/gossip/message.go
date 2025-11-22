@@ -10,12 +10,12 @@ const (
 )
 
 type JoinMessage struct {
-	Type   MessageType
-	Sender string
+	Type   MessageType `json:"type"`
+	Sender string      `json:"sender"`
 }
 
 type JoinResponseMessage struct {
-	Type  MessageType
-	Peers []string
-	Snapshot map[string]store.DataValue
+	Type     MessageType                `json:"type"`
+	Peers    []string                   `json:"peers"`
+	Snapshot map[string]store.DataValue `json:"snapshot"`
 }
