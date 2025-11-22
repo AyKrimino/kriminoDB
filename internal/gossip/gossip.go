@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/AyKrimino/kriminoDB/internal/store"
 )
@@ -100,7 +101,7 @@ func (g *Gossip) handleConn(conn net.Conn) {
 // Join connects this Gossip node to a bootstrap peer at the given address.
 // It sends a JOIN message and updates its peers list with the JOIN_RESPONSE.
 func (g *Gossip) Join(bootstrapAddr string) {
-	conn, err := net.Dial("tcp", bootstrapAddr)
+	conn, err := net.DialTimeout("tcp", bootstrapAddr, 3*time.Second)
 	if err != nil {
 		log.Printf("[GOSSIP] TCP dial error: %s", err)
 	}
@@ -119,6 +120,8 @@ func (g *Gossip) Join(bootstrapAddr string) {
 		return
 	}
 	log.Printf("[GOSSIP] %s sent from %s to %s", joinMsgB[:n], conn.LocalAddr().String(), bootstrapAddr)
+
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 
 	scanner := bufio.NewScanner(conn)
 	if scanner.Scan() {
