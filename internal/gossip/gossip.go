@@ -126,6 +126,9 @@ func (g *Gossip) Join(bootstrapAddr string) {
 }
 
 func (g *Gossip) updatePeersList(newPeers ...string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 outer:
 	for _, p := range newPeers {
 		if p == g.addr {
