@@ -1,3 +1,5 @@
+// Package gossip implements a simple peer-to-peer gossip protocol for
+// propagating messages between nodes.
 package gossip
 
 import (
@@ -10,6 +12,7 @@ import (
 	"github.com/AyKrimino/kriminoDB/internal/store"
 )
 
+// Gossip represents a gossip that keeps track of peers list and a store.
 type Gossip struct {
 	addr string
 
@@ -52,6 +55,7 @@ func (g *Gossip) startAcceptLoop(listener net.Listener) {
 	}
 }
 
+// handleConn handles a single incoming peer connection.
 func (g *Gossip) handleConn(conn net.Conn) {
 	defer conn.Close()
 	log.Printf("[GOSSIP] New peer connection from %s", conn.RemoteAddr())
@@ -86,6 +90,8 @@ func (g *Gossip) handleConn(conn net.Conn) {
 	}
 }
 
+// Join connects this Gossip node to a bootstrap peer at the given address.
+// It sends a JOIN message and updates its peers list with the JOIN_RESPONSE.
 func (g *Gossip) Join(bootstrapAddr string) {
 	conn, err := net.Dial("tcp", bootstrapAddr)
 	if err != nil {
