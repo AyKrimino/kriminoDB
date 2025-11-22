@@ -77,7 +77,10 @@ func (g *Gossip) handleConn(conn net.Conn) {
 
 		g.updatePeersList(joinMsg.Sender)
 
+		g.mu.RLock()
 		joinResMsg := NewJoinResponseMessage(g.peers)
+		g.mu.RUnlock()
+
 		joinResMsgB, err := json.Marshal(joinResMsg)
 		if err != nil {
 			log.Printf("[GOSSIP] Marshal error: %s", err)
