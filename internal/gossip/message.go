@@ -27,10 +27,10 @@ type JoinResponseMessage struct {
 	Snapshot map[string]store.DataValue `json:"snapshot"`
 }
 
-func NewJoinResponseMessage() *JoinResponseMessage {
+func NewJoinResponseMessage(peers []string) *JoinResponseMessage {
 	return &JoinResponseMessage{
 		Type: JoinResponse,
-		Peers: make([]string, 0, 20),
+		Peers: peers,
 		Snapshot: map[string]store.DataValue{},
 	}
 }
