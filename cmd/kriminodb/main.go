@@ -25,11 +25,16 @@ func main() {
 	st := store.NewStore()
 
 	g := gossip.NewGossip(st, fmt.Sprintf("localhost:%s", *peerPort))
+
+	ready := make(chan struct{})
+
 	go func() {
-		if err := g.ListenAndAccept(); err != nil {
+		if err := g.ListenAndAccept(ready); err != nil {
 			log.Fatalf("[GOSSIP] Fatal error: %v", err)
 		}
 	}()
+
+	<-ready
 
 	if *bootstrapAddr != "" {
 		log.Printf("Joining cluster via bootstrap node %s", *bootstrapAddr)

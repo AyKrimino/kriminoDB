@@ -32,12 +32,16 @@ func NewGossip(store store.DB, addr string) *Gossip {
 	}
 }
 
-func (g *Gossip) ListenAndAccept() error {
+func (g *Gossip) ListenAndAccept(ready chan<- struct{}) error {
 	listener, err := net.Listen("tcp", g.addr)
 	if err != nil {
 		return err
 	}
 	log.Printf("[GOSSIP] Listening for peers on %s", g.addr)
+
+	if ready != nil {
+		close(ready)
+	}
 
 	go g.startAcceptLoop(listener)
 
