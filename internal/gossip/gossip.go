@@ -2,7 +2,6 @@ package gossip
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net"
 	"sync"
@@ -11,28 +10,30 @@ import (
 )
 
 type Gossip struct {
-	listenAddr net.Addr
+	addr string
 
 	mu    sync.RWMutex
 	peers []string
 	store store.DB
 }
 
-func NewGossip(store store.DB) *Gossip {
+func NewGossip(store store.DB, addr string) *Gossip {
+	peers := make([]string, 0, 20)
+	peers = append(peers, addr)
+
 	return &Gossip{
+		addr:  addr,
 		store: store,
-		peers: make([]string, 0, 20),
+		peers: peers,
 	}
 }
 
-func (g *Gossip) ListenAndAccept(peerHost string, peerPort string) error {
-	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%s", peerHost, peerPort))
+func (g *Gossip) ListenAndAccept() error {
+	listener, err := net.Listen("tcp", g.addr)
 	if err != nil {
 		return err
 	}
-	log.Printf("[GOSSIP] Listening for peers on %s:%s", peerHost, peerPort)
-
-	g.listenAddr = listener.Addr()
+	log.Printf("[GOSSIP] Listening for peers on %s", g.addr)
 
 	go g.startAcceptLoop(listener)
 
@@ -68,6 +69,9 @@ func (g *Gossip) handleConn(conn net.Conn) {
 	}
 	log.Printf("[GOSSIP] %+v received from %s", joinMsg, conn.RemoteAddr().String())
 
+	// Update peers list
+	g.updatePeersList(joinMsg.Sender)
+
 	// send JOIN_RESPONSE message
 	joinResMsg := NewJoinResponseMessage(g.peers)
 	joinResMsgB, err := json.Marshal(joinResMsg)
@@ -79,7 +83,7 @@ func (g *Gossip) handleConn(conn net.Conn) {
 	if err != nil {
 		log.Printf("[GOSSIP] conn write error: %s", err)
 	}
-	log.Printf("[GOSSIP] %s sent from %s to %s", joinResMsgB[:n], g.listenAddr, conn.RemoteAddr().String())
+	log.Printf("[GOSSIP] %s sent from %s to %s", joinResMsgB[:n], g.addr, conn.RemoteAddr().String())
 }
 
 // Join dials bootstrap
@@ -90,7 +94,7 @@ func (g *Gossip) Join(bootstrapAddr string) {
 	}
 
 	// send JOIN message
-	joinMsg := NewJoinMessage(g.listenAddr.String())
+	joinMsg := NewJoinMessage(g.addr)
 	joinMsgB, err := json.Marshal(joinMsg)
 	if err != nil {
 		log.Printf("[GOSSIP] Marshal error: %s", err)
@@ -116,4 +120,22 @@ func (g *Gossip) Join(bootstrapAddr string) {
 		log.Printf("[GOSSIP] Unmarshal error: %s", err)
 	}
 	log.Printf("[GOSSIP] %+v received from %s", joinResMsg, conn.RemoteAddr().String())
+
+	// Update peers list
+	g.updatePeersList(joinResMsg.Peers...)
+}
+
+func (g *Gossip) updatePeersList(newPeers ...string) {
+outer:
+	for _, p := range newPeers {
+		if p == g.addr {
+			continue outer
+		}
+		for _, pp := range g.peers {
+			if pp == p {
+				continue outer
+			}
+		}
+		g.peers = append(g.peers, p)
+	}
 }

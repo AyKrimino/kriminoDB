@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 
 	"github.com/AyKrimino/kriminoDB/internal/gossip"
@@ -23,9 +24,9 @@ func main() {
 
 	st := store.NewStore()
 
-	g := gossip.NewGossip(st)
+	g := gossip.NewGossip(st, fmt.Sprintf("localhost:%s", *peerPort))
 	go func() {
-		if err := g.ListenAndAccept("localhost", *peerPort); err != nil {
+		if err := g.ListenAndAccept(); err != nil {
 			log.Fatalf("[GOSSIP] Fatal error: %v", err)
 		}
 	}()
