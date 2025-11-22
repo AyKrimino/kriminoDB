@@ -32,7 +32,7 @@ func main() {
 
 	if *bootstrapAddr != "" {
 		log.Printf("Joining cluster via bootstrap node %s", *bootstrapAddr)
-		// TODO: gossip join bootstrap
+		g.Join(*bootstrapAddr)
 	}
 
 	srv := server.NewServer(st, conf)
