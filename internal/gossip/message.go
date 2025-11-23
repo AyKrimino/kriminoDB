@@ -1,6 +1,11 @@
 package gossip
 
-import "github.com/AyKrimino/kriminoDB/internal/store"
+import (
+	"strings"
+
+	"github.com/AyKrimino/kriminoDB/internal/store"
+	"github.com/AyKrimino/kriminoDB/internal/utils"
+)
 
 type MessageType string
 
@@ -19,7 +24,7 @@ type JoinMessage struct {
 
 func NewJoinMessage(sender string) *JoinMessage {
 	return &JoinMessage{
-		Type: Join,
+		Type:   Join,
 		Sender: sender,
 	}
 }
@@ -35,8 +40,33 @@ type JoinResponseMessage struct {
 
 func NewJoinResponseMessage(peers []string) *JoinResponseMessage {
 	return &JoinResponseMessage{
-		Type: JoinResponse,
-		Peers: peers,
+		Type:     JoinResponse,
+		Peers:    peers,
 		Snapshot: map[string]store.DataValue{},
 	}
+}
+
+// Validate check if all strings in Peers are following this
+// format "host:port".
+func (jr JoinResponseMessage) Validate() bool {
+	for _, p := range jr.Peers {
+		parts := strings.Split(p, ":")
+		if len(parts) != 2 {
+			return false
+		}
+		host, port := parts[0], parts[1]
+
+		if utils.IsAlpha(host) {
+			if host != "localhost" {
+				return false
+			}
+		} else if !utils.IsIPAddress(host) {
+			return false
+		}
+
+		if !utils.IsPort(port) {
+			return false
+		}
+	}
+	return true
 }

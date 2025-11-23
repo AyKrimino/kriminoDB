@@ -133,6 +133,13 @@ func (g *Gossip) Join(bootstrapAddr string) {
 		}
 		log.Printf("[GOSSIP] %+v received from %s", joinResMsg, bootstrapAddr)
 
+		g.mu.RLock()
+		if !joinResMsg.Validate() {
+			log.Printf("[GOSSIP] invalid peers list.")
+			return
+		}
+		g.mu.RUnlock()
+
 		g.updatePeersList(joinResMsg.Peers...)
 	}
 	if err := scanner.Err(); err != nil {
