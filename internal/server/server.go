@@ -1,4 +1,4 @@
-// Package server implements a lightweight TCP server for handling key-value commands. 
+// Package server implements a lightweight TCP server for handling key-value commands.
 // It accepts SET and GET operations and
 package server
 
@@ -27,12 +27,12 @@ type Config struct {
 // It wraps a key–value store and provides TCP command handling logic.
 type server struct {
 	config Config
-	store store.DB
+	store  store.DB
 }
 
 func NewServer(s store.DB, conf Config) Server {
 	return &server{
-		store: s,
+		store:  s,
 		config: conf,
 	}
 }
@@ -41,8 +41,10 @@ func NewServer(s store.DB, conf Config) Server {
 // incoming client connections. Each connection is handled in
 // its own goroutine to allow concurrent execution.
 func (s *server) Start() error {
+	log.Printf("[SERVER] Attempting to bind %s:%s", s.config.Host, s.config.Port)
 	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%s", s.config.Host, s.config.Port))
 	if err != nil {
+		log.Printf("[SERVER] FAILED to bind %s:%s: %v", s.config.Host, s.config.Port, err)
 		return err
 	}
 	log.Printf("[SERVER] Listening on %s:%s", s.config.Host, s.config.Port)
@@ -53,7 +55,7 @@ func (s *server) Start() error {
 			return fmt.Errorf("TCP accept error: %s", err)
 		}
 
-		log.Printf("[CONNECTION] New client from %s", conn.RemoteAddr())
+		log.Printf("[SERVER] [CONNECTION] New client from %s", conn.RemoteAddr())
 
 		go s.handleConn(conn)
 	}
@@ -85,16 +87,16 @@ func (s *server) handleConn(conn net.Conn) {
 			if len(args) != 1 {
 				conn.Write([]byte("-ERR wrong number of arguments for 'get' command\r\n"))
 			} else {
-				val, found := s.store.Get(args[0])
+				dv, found := s.store.Get(args[0])
 				if found {
-					conn.Write(fmt.Appendf(nil, "%s=%s\n", args[0], string(val)))
+					conn.Write(fmt.Appendf(nil, "%s=%s\n", args[0], string(dv.Value)))
 				}
 			}
 		default:
 			conn.Write(fmt.Appendf(nil, "-ERR unknown command!\n"))
 		}
 
-		log.Printf("[COMMAND] %s %v", cmd, args)
+		log.Printf("[SERVER] [COMMAND] %s %v", cmd, args)
 	}
 }
 

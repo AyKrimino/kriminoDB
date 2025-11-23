@@ -19,7 +19,15 @@ node1: build
 
 node2: build
 	@$(BINARY) --client-port 3001 --peer-port 4001 --bootstrap localhost:4000
-	@echo "Node 2 running (client:3001, gossip:4001) → bootstrapping to node1"
+	@echo "Node 2 running (client:3001, gossip:4001) -> bootstrapping to node1"
+
+node3: build
+	@$(BINARY) --client-port 3002 --peer-port 4002 --bootstrap localhost:4000
+	@echo "Node 3 running (client:3002, gossip:4002) -> bootstrapping to node1"
+
+node4: build
+	@$(BINARY) --client-port 3003 --peer-port 4003 --bootstrap localhost:4000
+	@echo "Node 4 running (client:3003, gossip:4003) -> bootstrapping to node1"
 
 test:
 	@go test ./... -v

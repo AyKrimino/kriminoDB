@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AyKrimino/kriminoDB/internal/store"
+	"github.com/AyKrimino/kriminoDB/internal/utils"
 )
 
 // Gossip represents a gossip that keeps track of peers list and a store.
@@ -68,30 +69,53 @@ func (g *Gossip) handleConn(conn net.Conn) {
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		line := scanner.Bytes()
-		var joinMsg JoinMessage
-		if err := json.Unmarshal(line, &joinMsg); err != nil {
+
+		var header MessageHeader
+		if err := json.Unmarshal(line, &header); err != nil {
 			log.Printf("[GOSSIP] Unmarshal error: %s", err)
 			continue
 		}
 
-		log.Printf("[GOSSIP] %+v received from %s", joinMsg, conn.RemoteAddr().String())
+		switch header.Type {
+		case Join:
+			var joinMsg JoinMessage
+			if err := json.Unmarshal(line, &joinMsg); err != nil {
+				log.Printf("[GOSSIP] Unmarshal error: %s", err)
+				continue
+			}
 
-		g.updatePeersList(joinMsg.Sender)
+			log.Printf("[GOSSIP] %+v received from %s", joinMsg, conn.RemoteAddr().String())
 
-		g.mu.RLock()
-		joinResMsg := NewJoinResponseMessage(g.peers)
-		g.mu.RUnlock()
+			g.updatePeersList(joinMsg.Sender)
 
-		joinResMsgB, err := json.Marshal(joinResMsg)
-		if err != nil {
-			log.Printf("[GOSSIP] Marshal error: %s", err)
+			g.mu.RLock()
+			joinResMsg := NewJoinResponseMessage(g.peers)
+			g.mu.RUnlock()
+
+			joinResMsgB, err := json.Marshal(joinResMsg)
+			if err != nil {
+				log.Printf("[GOSSIP] Marshal error: %s", err)
+			}
+			joinResMsgB = append(joinResMsgB, '\n')
+			n, err := conn.Write(joinResMsgB)
+			if err != nil {
+				log.Printf("[GOSSIP] conn write error: %s", err)
+			}
+			log.Printf("[GOSSIP] %s sent from %s to %s", joinResMsgB[:n], g.addr, conn.RemoteAddr().String())
+		case Update:
+			var updateMsg UpdateMessage
+			if err := json.Unmarshal(line, &updateMsg); err != nil {
+				log.Printf("[GOSSIP] Unmarshal error: %s", err)
+				continue
+			}
+			log.Printf("[GOSSIP] %+v received from %s", updateMsg, conn.RemoteAddr().String())
+
+			// TODO: fix infinite loop issue when replicating updated data
+			curr, exists := g.store.Get(updateMsg.Key)
+			if !exists || updateMsg.DataValue.Version > curr.Version {
+				g.store.Set(updateMsg.Key, updateMsg.DataValue.Value)
+			}
 		}
-		joinResMsgB = append(joinResMsgB, '\n')
-		n, err := conn.Write(joinResMsgB)
-		if err != nil {
-			log.Printf("[GOSSIP] conn write error: %s", err)
-		}
-		log.Printf("[GOSSIP] %s sent from %s to %s", joinResMsgB[:n], g.addr, conn.RemoteAddr().String())
 	}
 	if err := scanner.Err(); err != nil {
 		log.Printf("[GOSSIP] Scanner error: %s", err)
@@ -104,7 +128,9 @@ func (g *Gossip) Join(bootstrapAddr string) {
 	conn, err := net.DialTimeout("tcp", bootstrapAddr, 3*time.Second)
 	if err != nil {
 		log.Printf("[GOSSIP] TCP dial error: %s", err)
+		return
 	}
+	defer conn.Close()
 
 	joinMsg := NewJoinMessage(g.addr)
 	joinMsgB, err := json.Marshal(joinMsg)
@@ -144,6 +170,7 @@ func (g *Gossip) Join(bootstrapAddr string) {
 	}
 	if err := scanner.Err(); err != nil {
 		log.Printf("[GOSSIP] Scanner error: %s", err)
+		return
 	}
 }
 
@@ -163,4 +190,50 @@ outer:
 		}
 		g.peers = append(g.peers, p)
 	}
+
+	log.Printf("[GOSSIP] updated peers list %+v", g.peers)
+}
+
+func (g *Gossip) pushUpdate(key string, dataValue store.DataValue) {
+	var randomPeers []string
+
+outer:
+	for {
+		randomPeers = utils.GetRandomItems(g.peers, 2)
+		for _, p := range randomPeers {
+			if p == g.addr {
+				continue outer
+			}
+		}
+		break outer
+	}
+
+	for _, p := range randomPeers {
+		conn, err := net.DialTimeout("tcp", p, 3*time.Second)
+		if err != nil {
+			log.Printf("[GOSSIP] TCP dial error: %s", err)
+		}
+
+		conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+
+		updateMsg := NewUpdateMessge(key, dataValue)
+
+		updateMsgB, err := json.Marshal(updateMsg)
+		if err != nil {
+			log.Printf("[GOSSIP] Marshal error: %s", err)
+			continue
+		}
+
+		n, err := conn.Write(updateMsgB)
+		if err != nil {
+			log.Printf("[GOSSIP] conn write error: %s", err)
+		}
+		log.Printf("[GOSSIP] update message %s sent to %s", updateMsgB[:n], p)
+
+		conn.Close()
+	}
+}
+
+func (g *Gossip) Replicate(key string, dataValue store.DataValue) {
+	g.pushUpdate(key, dataValue)
 }

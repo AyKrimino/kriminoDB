@@ -22,9 +22,11 @@ func main() {
 		Port: *clientPort,
 	}
 
-	st := store.NewStore()
+	st := store.NewStore(nil)
 
 	g := gossip.NewGossip(st, fmt.Sprintf("localhost:%s", *peerPort))
+
+	st.(*store.Store).SetReplicator(g)
 
 	ready := make(chan struct{})
 
@@ -37,7 +39,7 @@ func main() {
 	<-ready
 
 	if *bootstrapAddr != "" {
-		log.Printf("Joining cluster via bootstrap node %s", *bootstrapAddr)
+		log.Printf("[GOSSIP] Joining cluster via bootstrap node %s", *bootstrapAddr)
 		g.Join(*bootstrapAddr)
 	}
 

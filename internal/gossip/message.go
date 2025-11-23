@@ -12,6 +12,7 @@ type MessageType string
 const (
 	Join         MessageType = "JOIN"
 	JoinResponse MessageType = "JOIN_RESPONSE"
+	Update       MessageType = "UPDATE"
 )
 
 // JoinMessage represents a message of type JOIN.
@@ -69,4 +70,22 @@ func (jr JoinResponseMessage) Validate() bool {
 		}
 	}
 	return true
+}
+
+type UpdateMessage struct {
+	Type      MessageType     `json:"type"`
+	Key       string          `json:"key"`
+	DataValue store.DataValue `json:"data_value"`
+}
+
+func NewUpdateMessge(key string, dv store.DataValue) *UpdateMessage {
+	return &UpdateMessage{
+		Type: Update,
+		Key: key,
+		DataValue: dv,
+	}
+}
+
+type MessageHeader struct {
+	Type MessageType `json:"type"`
 }
