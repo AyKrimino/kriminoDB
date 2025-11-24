@@ -206,12 +206,12 @@ outer:
 	log.Printf("[GOSSIP] updated peers list %+v", g.peers)
 }
 
-func (g *Gossip) pushUpdate(key string, dataValue store.DataValue) {
+func (g *Gossip) getDistinctRandomPeers(n int) []string {
 	var randomPeers []string
 
 outer:
 	for {
-		randomPeers = utils.GetRandomItems(g.peers, 2)
+		randomPeers = utils.GetRandomItems(g.peers, n)
 		for _, p := range randomPeers {
 			if p == g.addr {
 				continue outer
@@ -219,6 +219,11 @@ outer:
 		}
 		break outer
 	}
+	return randomPeers
+}
+
+func (g *Gossip) pushUpdate(key string, dataValue store.DataValue) {
+	randomPeers := g.getDistinctRandomPeers(2)
 
 	for _, p := range randomPeers {
 		conn, err := net.DialTimeout("tcp", p, 3*time.Second)
