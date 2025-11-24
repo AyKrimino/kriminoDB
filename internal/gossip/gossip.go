@@ -98,11 +98,11 @@ func (g *Gossip) handleUpdateMessage(conn net.Conn, line []byte) {
 	}
 	log.Printf("[GOSSIP] %+v received from %s", updateMsg, conn.RemoteAddr().String())
 
-	currDataValue, exists := g.store.Get(updateMsg.Key)
+	_, exists := g.store.Get(updateMsg.Key)
 	if !exists {
 		g.store.Set(updateMsg.Key, updateMsg.DataValue.Value)
 	} else {
-		g.store.(*store.Store).SetExistingKey(updateMsg.Key, updateMsg.DataValue, currDataValue)
+		g.store.Update(updateMsg.Key, updateMsg.DataValue)
 	}
 }
 

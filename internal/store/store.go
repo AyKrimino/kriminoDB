@@ -2,6 +2,7 @@
 package store
 
 import (
+	"fmt"
 	"maps"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 type DB interface {
 	Get(key string) (DataValue, bool)
 	Set(key string, value []byte)
+	Update(key string, dataValue DataValue) error
 }
 
 // DataValue stores the raw byte value and a version timestamp.
@@ -62,7 +64,17 @@ func (s *Store) Set(key string, value []byte) {
 	}()
 }
 
-func (s *Store) SetExistingKey(key string, newDataValue DataValue, oldDataValue DataValue) {
+func (s *Store) Update(key string, dataValue DataValue) error {
+	oldDataValue, exists := s.Get(key)
+	if !exists {
+		return fmt.Errorf("key %s does not exist", key)
+	}
+
+	s.setExistingKey(key, dataValue, oldDataValue)
+	return nil
+}
+
+func (s *Store) setExistingKey(key string, newDataValue DataValue, oldDataValue DataValue) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
