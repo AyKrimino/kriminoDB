@@ -78,49 +78,58 @@ func (g *Gossip) handleConn(conn net.Conn) {
 
 		switch header.Type {
 		case Join:
-			var joinMsg JoinMessage
-			if err := json.Unmarshal(line, &joinMsg); err != nil {
-				log.Printf("[GOSSIP] Unmarshal error: %s", err)
-				continue
-			}
-
-			log.Printf("[GOSSIP] %+v received from %s", joinMsg, conn.RemoteAddr().String())
-
-			g.updatePeersList(joinMsg.Sender)
-
-			g.mu.RLock()
-			joinResMsg := NewJoinResponseMessage(g.peers)
-			g.mu.RUnlock()
-
-			joinResMsgB, err := json.Marshal(joinResMsg)
-			if err != nil {
-				log.Printf("[GOSSIP] Marshal error: %s", err)
-			}
-			joinResMsgB = append(joinResMsgB, '\n')
-			n, err := conn.Write(joinResMsgB)
-			if err != nil {
-				log.Printf("[GOSSIP] conn write error: %s", err)
-			}
-			log.Printf("[GOSSIP] %s sent from %s to %s", joinResMsgB[:n], g.addr, conn.RemoteAddr().String())
+			g.handleJoinMessage(conn, line)
 		case Update:
-			var updateMsg UpdateMessage
-			if err := json.Unmarshal(line, &updateMsg); err != nil {
-				log.Printf("[GOSSIP] Unmarshal error: %s", err)
-				continue
-			}
-			log.Printf("[GOSSIP] %+v received from %s", updateMsg, conn.RemoteAddr().String())
-
-			currDataValue, exists := g.store.Get(updateMsg.Key)
-			if !exists {
-				g.store.Set(updateMsg.Key, updateMsg.DataValue.Value)
-			} else {
-				g.store.(*store.Store).SetExistingKey(updateMsg.Key, updateMsg.DataValue, currDataValue)
-			}
+			g.handleUpdateMessage(conn, line)
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		log.Printf("[GOSSIP] Scanner error: %s", err)
 	}
+}
+
+func (g *Gossip) handleUpdateMessage(conn net.Conn, line []byte) {
+	var updateMsg UpdateMessage
+	if err := json.Unmarshal(line, &updateMsg); err != nil {
+		log.Printf("[GOSSIP] Unmarshal error: %s", err)
+		return
+	}
+	log.Printf("[GOSSIP] %+v received from %s", updateMsg, conn.RemoteAddr().String())
+
+	currDataValue, exists := g.store.Get(updateMsg.Key)
+	if !exists {
+		g.store.Set(updateMsg.Key, updateMsg.DataValue.Value)
+	} else {
+		g.store.(*store.Store).SetExistingKey(updateMsg.Key, updateMsg.DataValue, currDataValue)
+	}
+}
+
+func (g *Gossip) handleJoinMessage(conn net.Conn, line []byte) {
+	var joinMsg JoinMessage
+	if err := json.Unmarshal(line, &joinMsg); err != nil {
+		log.Printf("[GOSSIP] Unmarshal error: %s", err)
+		return
+	}
+
+	log.Printf("[GOSSIP] %+v received from %s", joinMsg, conn.RemoteAddr().String())
+
+	g.updatePeersList(joinMsg.Sender)
+
+	g.mu.RLock()
+	joinResMsg := NewJoinResponseMessage(g.peers)
+	g.mu.RUnlock()
+
+	joinResMsgB, err := json.Marshal(joinResMsg)
+	if err != nil {
+		log.Printf("[GOSSIP] Marshal error: %s", err)
+	}
+	joinResMsgB = append(joinResMsgB, '\n')
+
+	n, err := conn.Write(joinResMsgB)
+	if err != nil {
+		log.Printf("[GOSSIP] conn write error: %s", err)
+	}
+	log.Printf("[GOSSIP] %s sent from %s to %s", joinResMsgB[:n], g.addr, conn.RemoteAddr().String())
 }
 
 // Join connects this Gossip node to a bootstrap peer at the given address.
