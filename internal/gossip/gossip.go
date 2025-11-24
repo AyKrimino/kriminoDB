@@ -110,10 +110,11 @@ func (g *Gossip) handleConn(conn net.Conn) {
 			}
 			log.Printf("[GOSSIP] %+v received from %s", updateMsg, conn.RemoteAddr().String())
 
-			// TODO: fix infinite loop issue when replicating updated data
-			curr, exists := g.store.Get(updateMsg.Key)
-			if !exists || updateMsg.DataValue.Version > curr.Version {
+			currDataValue, exists := g.store.Get(updateMsg.Key)
+			if !exists {
 				g.store.Set(updateMsg.Key, updateMsg.DataValue.Value)
+			} else {
+				g.store.(*store.Store).SetExistingKey(updateMsg.Key, updateMsg.DataValue, currDataValue)
 			}
 		}
 	}

@@ -62,6 +62,16 @@ func (s *Store) Set(key string, value []byte) {
 	}()
 }
 
+func (s *Store) SetExistingKey(key string, newDataValue DataValue, oldDataValue DataValue) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if newDataValue.Version > oldDataValue.Version {
+		s.data[key] = newDataValue
+		s.pendingUpdates[key] = newDataValue
+	}
+}
+
 func (s *Store) Get(key string) (DataValue, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
