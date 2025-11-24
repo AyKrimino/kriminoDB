@@ -81,6 +81,8 @@ func (g *Gossip) handleConn(conn net.Conn) {
 			g.handleJoinMessage(conn, line)
 		case Update:
 			g.handleUpdateMessage(conn, line)
+		default:
+			log.Printf("[GOSSIP] Unknown message type: %s", header.Type)
 		}
 	}
 	if err := scanner.Err(); err != nil {
