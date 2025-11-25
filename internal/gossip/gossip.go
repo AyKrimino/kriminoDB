@@ -17,12 +17,14 @@ import (
 // Gossip represents a gossip that keeps track of peers list and a store.
 type Gossip struct {
 	addr   string
+
 	ticker *time.Ticker
 	stopCh chan struct{}
 
 	mu    sync.RWMutex
 	peers []string
 	store store.DB
+	seenMessageIDs map[string]bool
 }
 
 func NewGossip(store store.DB, addr string) *Gossip {
@@ -35,6 +37,7 @@ func NewGossip(store store.DB, addr string) *Gossip {
 		stopCh: make(chan struct{}),
 		store:  store,
 		peers:  peers,
+		seenMessageIDs: make(map[string]bool, 1000),
 	}
 }
 
@@ -151,7 +154,13 @@ func (g *Gossip) handleGossipMessage(conn net.Conn, line []byte) {
 		log.Printf("[GOSSIP] Unmarshal error: %s", err)
 		return
 	}
-	log.Printf("[GOSSIP] %+v received from %s", gossipMsg, conn.RemoteAddr().String())
+
+	if g.seenMessageIDs[string(gossipMsg.MessageID)] {
+		return
+	}
+	g.seenMessageIDs[string(gossipMsg.MessageID)] = true
+
+	log.Printf("[GOSSIP] %+v received new GOSSIP message from %s", gossipMsg, conn.RemoteAddr().String())
 
 	for key, dv := range gossipMsg.Updates {
 		g.store.Update(key, dv)
@@ -303,11 +312,10 @@ func (g *Gossip) sendGossip() {
 						continue
 					}
 
-					n, err := conn.Write(gossipMsgB)
+					_, err = conn.Write(gossipMsgB)
 					if err != nil {
 						log.Printf("[GOSSIP] conn write error: %s", err)
 					}
-					log.Printf("[GOSSIP] gossip message %s sent to %s", gossipMsgB[:n], p)
 
 					conn.Close()
 				}

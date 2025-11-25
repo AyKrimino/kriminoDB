@@ -1,11 +1,13 @@
 package gossip
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"sort"
 	"strings"
 
 	"github.com/AyKrimino/kriminoDB/internal/store"
 	"github.com/AyKrimino/kriminoDB/internal/utils"
-	"github.com/google/uuid"
 )
 
 type MessageType string
@@ -94,16 +96,47 @@ type MessageHeader struct {
 
 type GossipMessage struct {
 	Type      MessageType                `json:"type"`
-	MessageID uuid.UUID                  `json:"message_id"`
+	MessageID []byte                     `json:"message_id"`
 	Updates   map[string]store.DataValue `json:"updates"`
 	Peers     []string
 }
 
 func NewGossipMessage(updates map[string]store.DataValue, peers []string) *GossipMessage {
-	return &GossipMessage{
-		Type:      GossipType,
-		MessageID: uuid.New(),
-		Updates:   updates,
-		Peers:     peers,
+	gm := &GossipMessage{
+		Type:    GossipType,
+		Updates: updates,
+		Peers:   peers,
 	}
+
+	gm.MessageID = gm.computeMessageID()
+
+	return gm
+}
+
+func (gm GossipMessage) computeMessageID() []byte {
+	h := sha256.New()
+
+	keys := make([]string, 0, len(gm.Updates))
+	for k := range gm.Updates {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		h.Write([]byte(k))
+
+		versionBuf := make([]byte, 8)
+		binary.BigEndian.PutUint64(versionBuf, uint64(gm.Updates[k].Version))
+		h.Write(versionBuf)
+	}
+
+	sortedPeers := make([]string, len(gm.Peers))
+	copy(sortedPeers, gm.Peers)
+	sort.Strings(sortedPeers)
+
+	for _, p := range sortedPeers {
+		h.Write([]byte(p))
+	}
+
+	return h.Sum(nil)
 }
