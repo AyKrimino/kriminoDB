@@ -102,7 +102,10 @@ func (g *Gossip) handleUpdateMessage(conn net.Conn, line []byte) {
 	if !exists {
 		g.store.Set(updateMsg.Key, updateMsg.DataValue.Value)
 	} else {
-		g.store.Update(updateMsg.Key, updateMsg.DataValue)
+		err := g.store.Update(updateMsg.Key, updateMsg.DataValue)
+		if err != nil {
+			log.Printf("[GOSSIP] error updating value: %s", err)
+		}
 	}
 }
 
