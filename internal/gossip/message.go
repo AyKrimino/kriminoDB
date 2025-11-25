@@ -5,14 +5,16 @@ import (
 
 	"github.com/AyKrimino/kriminoDB/internal/store"
 	"github.com/AyKrimino/kriminoDB/internal/utils"
+	"github.com/google/uuid"
 )
 
 type MessageType string
 
 const (
-	Join         MessageType = "JOIN"
-	JoinResponse MessageType = "JOIN_RESPONSE"
-	Update       MessageType = "UPDATE"
+	JoinType         MessageType = "JOIN"
+	JoinResponseType MessageType = "JOIN_RESPONSE"
+	UpdateType       MessageType = "UPDATE"
+	GossipType       MessageType = "GOSSIP"
 )
 
 // JoinMessage represents a message of type JOIN.
@@ -25,7 +27,7 @@ type JoinMessage struct {
 
 func NewJoinMessage(sender string) *JoinMessage {
 	return &JoinMessage{
-		Type:   Join,
+		Type:   JoinType,
 		Sender: sender,
 	}
 }
@@ -41,7 +43,7 @@ type JoinResponseMessage struct {
 
 func NewJoinResponseMessage(peers []string) *JoinResponseMessage {
 	return &JoinResponseMessage{
-		Type:     JoinResponse,
+		Type:     JoinResponseType,
 		Peers:    peers,
 		Snapshot: map[string]store.DataValue{},
 	}
@@ -80,12 +82,28 @@ type UpdateMessage struct {
 
 func NewUpdateMessge(key string, dv store.DataValue) *UpdateMessage {
 	return &UpdateMessage{
-		Type: Update,
-		Key: key,
+		Type:      UpdateType,
+		Key:       key,
 		DataValue: dv,
 	}
 }
 
 type MessageHeader struct {
 	Type MessageType `json:"type"`
+}
+
+type GossipMessage struct {
+	Type      MessageType                `json:"type"`
+	MessageID uuid.UUID                  `json:"message_id"`
+	Updates   map[string]store.DataValue `json:"updates"`
+	Peers     []string
+}
+
+func NewGossipMessage(updates map[string]store.DataValue, peers []string) *GossipMessage {
+	return &GossipMessage{
+		Type:      GossipType,
+		MessageID: uuid.New(),
+		Updates:   updates,
+		Peers:     peers,
+	}
 }

@@ -16,7 +16,9 @@ import (
 
 // Gossip represents a gossip that keeps track of peers list and a store.
 type Gossip struct {
-	addr string
+	addr   string
+	ticker *time.Ticker
+	stopCh chan struct{}
 
 	mu    sync.RWMutex
 	peers []string
@@ -28,9 +30,11 @@ func NewGossip(store store.DB, addr string) *Gossip {
 	peers = append(peers, addr)
 
 	return &Gossip{
-		addr:  addr,
-		store: store,
-		peers: peers,
+		addr:   addr,
+		ticker: time.NewTicker(2 * time.Second),
+		stopCh: make(chan struct{}),
+		store:  store,
+		peers:  peers,
 	}
 }
 
@@ -44,6 +48,8 @@ func (g *Gossip) ListenAndAccept(ready chan<- struct{}) error {
 	if ready != nil {
 		close(ready)
 	}
+
+	go g.sendGossip()
 
 	go g.startAcceptLoop(listener)
 
@@ -77,10 +83,12 @@ func (g *Gossip) handleConn(conn net.Conn) {
 		}
 
 		switch header.Type {
-		case Join:
+		case JoinType:
 			g.handleJoinMessage(conn, line)
-		case Update:
+		case UpdateType:
 			g.handleUpdateMessage(conn, line)
+		case GossipType:
+			g.handleGossipMessage(conn, line)
 		default:
 			log.Printf("[GOSSIP] Unknown message type: %s", header.Type)
 		}
@@ -135,6 +143,21 @@ func (g *Gossip) handleJoinMessage(conn net.Conn, line []byte) {
 		log.Printf("[GOSSIP] conn write error: %s", err)
 	}
 	log.Printf("[GOSSIP] %s sent from %s to %s", joinResMsgB[:n], g.addr, conn.RemoteAddr().String())
+}
+
+func (g *Gossip) handleGossipMessage(conn net.Conn, line []byte) {
+	var gossipMsg GossipMessage
+	if err := json.Unmarshal(line, &gossipMsg); err != nil {
+		log.Printf("[GOSSIP] Unmarshal error: %s", err)
+		return
+	}
+	log.Printf("[GOSSIP] %+v received from %s", gossipMsg, conn.RemoteAddr().String())
+
+	for key, dv := range gossipMsg.Updates {
+		g.store.Update(key, dv)
+	}
+
+	g.updatePeersList(gossipMsg.Peers...)
 }
 
 // Join connects this Gossip node to a bootstrap peer at the given address.
@@ -234,8 +257,6 @@ func (g *Gossip) pushUpdate(key string, dataValue store.DataValue) {
 			log.Printf("[GOSSIP] TCP dial error: %s", err)
 		}
 
-		conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-
 		updateMsg := NewUpdateMessge(key, dataValue)
 
 		updateMsgB, err := json.Marshal(updateMsg)
@@ -256,4 +277,41 @@ func (g *Gossip) pushUpdate(key string, dataValue store.DataValue) {
 
 func (g *Gossip) Replicate(key string, dataValue store.DataValue) {
 	g.pushUpdate(key, dataValue)
+}
+
+func (g *Gossip) sendGossip() {
+	defer close(g.stopCh)
+	for {
+		select {
+		case <-g.stopCh:
+			g.ticker.Stop()
+			return
+		case <-g.ticker.C:
+			pendingUpdates := g.store.(*store.Store).GetPendingUpdates()
+			if len(g.peers) > 0 {
+				randomPeers := g.getDistinctRandomPeers(3)
+				for _, p := range randomPeers {
+					conn, err := net.DialTimeout("tcp", p, 3*time.Second)
+					if err != nil {
+						log.Printf("[GOSSIP] TCP dial error: %s", err)
+					}
+
+					gossipMsg := NewGossipMessage(pendingUpdates, g.peers)
+					gossipMsgB, err := json.Marshal(gossipMsg)
+					if err != nil {
+						log.Printf("[GOSSIP] Marshal error: %s", err)
+						continue
+					}
+
+					n, err := conn.Write(gossipMsgB)
+					if err != nil {
+						log.Printf("[GOSSIP] conn write error: %s", err)
+					}
+					log.Printf("[GOSSIP] gossip message %s sent to %s", gossipMsgB[:n], p)
+
+					conn.Close()
+				}
+			}
+		}
+	}
 }
