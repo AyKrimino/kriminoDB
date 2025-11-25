@@ -16,14 +16,14 @@ import (
 
 // Gossip represents a gossip that keeps track of peers list and a store.
 type Gossip struct {
-	addr   string
+	addr string
 
 	ticker *time.Ticker
 	stopCh chan struct{}
 
-	mu    sync.RWMutex
-	peers []string
-	store store.DB
+	mu             sync.RWMutex
+	peers          []string
+	store          store.DB
 	seenMessageIDs map[string]bool
 }
 
@@ -32,11 +32,11 @@ func NewGossip(store store.DB, addr string) *Gossip {
 	peers = append(peers, addr)
 
 	return &Gossip{
-		addr:   addr,
-		ticker: time.NewTicker(2 * time.Second),
-		stopCh: make(chan struct{}),
-		store:  store,
-		peers:  peers,
+		addr:           addr,
+		ticker:         time.NewTicker(2 * time.Second),
+		stopCh:         make(chan struct{}),
+		store:          store,
+		peers:          peers,
 		seenMessageIDs: make(map[string]bool, 1000),
 	}
 }
@@ -73,9 +73,10 @@ func (g *Gossip) startAcceptLoop(listener net.Listener) {
 // handleConn handles a single incoming peer connection.
 func (g *Gossip) handleConn(conn net.Conn) {
 	defer conn.Close()
-	log.Printf("[GOSSIP] New peer connection from %s", conn.RemoteAddr())
 
 	scanner := bufio.NewScanner(conn)
+	firstMessage := true
+
 	for scanner.Scan() {
 		line := scanner.Bytes()
 
@@ -83,6 +84,10 @@ func (g *Gossip) handleConn(conn net.Conn) {
 		if err := json.Unmarshal(line, &header); err != nil {
 			log.Printf("[GOSSIP] Unmarshal error: %s", err)
 			continue
+		}
+
+		if firstMessage && header.Type == JoinType {
+			log.Printf("[GOSSIP] New peer connection from %s joining the cluster", conn.RemoteAddr())
 		}
 
 		switch header.Type {
@@ -160,13 +165,28 @@ func (g *Gossip) handleGossipMessage(conn net.Conn, line []byte) {
 	}
 	g.seenMessageIDs[string(gossipMsg.MessageID)] = true
 
-	log.Printf("[GOSSIP] %+v received new GOSSIP message from %s", gossipMsg, conn.RemoteAddr().String())
+	if len(gossipMsg.Updates) > 0 || g.peerListChanged(gossipMsg.Peers) {
+		log.Printf("[GOSSIP] %+v received new GOSSIP message from %s", gossipMsg, conn.RemoteAddr().String())
+	}
 
 	for key, dv := range gossipMsg.Updates {
 		g.store.Update(key, dv)
 	}
 
 	g.updatePeersList(gossipMsg.Peers...)
+}
+
+// peerListChanged checks if peers argument has peers
+// that does not exist in the Gossip peers list
+func (g *Gossip) peerListChanged(peers []string) bool {
+	for _, p := range peers {
+		for _, pp := range g.peers {
+			if p != pp {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Join connects this Gossip node to a bootstrap peer at the given address.
