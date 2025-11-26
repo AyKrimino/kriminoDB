@@ -192,6 +192,12 @@ func (g *Gossip) peerListChanged(peers []string) bool {
 // Join connects this Gossip node to a bootstrap peer at the given address.
 // It sends a JOIN message and updates its peers list with the JOIN_RESPONSE.
 func (g *Gossip) Join(bootstrapAddr string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println("[DEBUG] Recovered from panic:", r)
+		}
+	}()
+
 	conn, err := net.DialTimeout("tcp", bootstrapAddr, 3*time.Second)
 	if err != nil {
 		log.Printf("[GOSSIP] TCP dial error: %s", err)
@@ -278,6 +284,12 @@ outer:
 }
 
 func (g *Gossip) pushUpdate(key string, dataValue store.DataValue) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println("[DEBUG] Recovered from panic:", r)
+		}
+	}()
+
 	randomPeers := g.getDistinctRandomPeers(2)
 
 	for _, p := range randomPeers {
@@ -309,7 +321,14 @@ func (g *Gossip) Replicate(key string, dataValue store.DataValue) {
 }
 
 func (g *Gossip) sendGossip() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println("[DEBUG] Recovered from panic:", r)
+		}
+	}()
+
 	defer close(g.stopCh)
+
 	for {
 		select {
 		case <-g.stopCh:
