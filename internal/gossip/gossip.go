@@ -192,12 +192,6 @@ func (g *Gossip) peerListChanged(peers []string) bool {
 // Join connects this Gossip node to a bootstrap peer at the given address.
 // It sends a JOIN message and updates its peers list with the JOIN_RESPONSE.
 func (g *Gossip) Join(bootstrapAddr string) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Println("[DEBUG] Recovered from panic:", r)
-		}
-	}()
-
 	conn, err := net.DialTimeout("tcp", bootstrapAddr, 3*time.Second)
 	if err != nil {
 		log.Printf("[GOSSIP] TCP dial error: %s", err)
@@ -284,18 +278,18 @@ outer:
 }
 
 func (g *Gossip) pushUpdate(key string, dataValue store.DataValue) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Println("[DEBUG] Recovered from panic:", r)
-		}
-	}()
-
 	randomPeers := g.getDistinctRandomPeers(2)
 
 	for _, p := range randomPeers {
 		conn, err := net.DialTimeout("tcp", p, 3*time.Second)
 		if err != nil {
 			log.Printf("[GOSSIP] TCP dial error: %s", err)
+
+			removed := g.removeDeadPeer(p)
+			if removed {
+				log.Printf("[GOSSIP] removed dead peer %s from peer list", p)
+			}
+			continue
 		}
 
 		updateMsg := NewUpdateMessge(key, dataValue)
@@ -309,6 +303,7 @@ func (g *Gossip) pushUpdate(key string, dataValue store.DataValue) {
 		n, err := conn.Write(updateMsgB)
 		if err != nil {
 			log.Printf("[GOSSIP] conn write error: %s", err)
+			continue
 		}
 		log.Printf("[GOSSIP] update message %s sent to %s", updateMsgB[:n], p)
 
@@ -321,12 +316,6 @@ func (g *Gossip) Replicate(key string, dataValue store.DataValue) {
 }
 
 func (g *Gossip) sendGossip() {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Println("[DEBUG] Recovered from panic:", r)
-		}
-	}()
-
 	defer close(g.stopCh)
 
 	for {
@@ -342,6 +331,12 @@ func (g *Gossip) sendGossip() {
 					conn, err := net.DialTimeout("tcp", p, 3*time.Second)
 					if err != nil {
 						log.Printf("[GOSSIP] TCP dial error: %s", err)
+
+						removed := g.removeDeadPeer(p)
+						if removed {
+							log.Printf("[GOSSIP] removed dead peer %s from peer list", p)
+						}
+						continue
 					}
 
 					gossipMsg := NewGossipMessage(pendingUpdates, g.peers)
@@ -354,6 +349,7 @@ func (g *Gossip) sendGossip() {
 					_, err = conn.Write(gossipMsgB)
 					if err != nil {
 						log.Printf("[GOSSIP] conn write error: %s", err)
+						continue
 					}
 
 					conn.Close()
@@ -361,4 +357,20 @@ func (g *Gossip) sendGossip() {
 			}
 		}
 	}
+}
+
+func (g *Gossip) removeDeadPeer(peer string) bool {
+	removeIdx := -1
+	for idx, p := range g.peers {
+		if p == peer {
+			removeIdx = idx
+			break
+		}
+	}
+
+	if removeIdx != -1 {
+		g.peers = append(g.peers[:removeIdx], g.peers[removeIdx+1:]...)
+		return true
+	}
+	return false
 }
