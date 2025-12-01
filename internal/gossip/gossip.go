@@ -153,6 +153,17 @@ func (g *Gossip) handleJoinMessage(conn net.Conn, line []byte) {
 	log.Printf("[GOSSIP] %s sent from %s to %s", joinResMsgB[:n], g.addr, conn.RemoteAddr().String())
 }
 
+func (g *Gossip) markSeen(id string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.seenMessageIDs[id] {
+		return false
+	}
+	g.seenMessageIDs[id] = true
+	return true
+}
+
 func (g *Gossip) handleGossipMessage(conn net.Conn, line []byte) {
 	var gossipMsg GossipMessage
 	if err := json.Unmarshal(line, &gossipMsg); err != nil {
@@ -160,10 +171,9 @@ func (g *Gossip) handleGossipMessage(conn net.Conn, line []byte) {
 		return
 	}
 
-	if g.seenMessageIDs[string(gossipMsg.MessageID)] {
+	if !g.markSeen(string(gossipMsg.MessageID)) {
 		return
 	}
-	g.seenMessageIDs[string(gossipMsg.MessageID)] = true
 
 	if len(gossipMsg.Updates) > 0 || g.peerListChanged(gossipMsg.Peers) {
 		log.Printf("[GOSSIP] %+v received new GOSSIP message from %s", gossipMsg, conn.RemoteAddr().String())
