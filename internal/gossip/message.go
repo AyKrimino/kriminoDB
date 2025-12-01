@@ -17,6 +17,7 @@ const (
 	JoinResponseType MessageType = "JOIN_RESPONSE"
 	UpdateType       MessageType = "UPDATE"
 	GossipType       MessageType = "GOSSIP"
+	HeartbeatType    MessageType = "HEARTBEAT"
 )
 
 // JoinMessage represents a message of type JOIN.
@@ -139,4 +140,16 @@ func (gm GossipMessage) computeMessageID() []byte {
 	}
 
 	return h.Sum(nil)
+}
+
+type HeartbeatMessage struct {
+	Type   MessageType `json:"type"`
+	Sender string      `json:"sender"`
+}
+
+func NewHeartbeatMessage(sender string) *HeartbeatMessage {
+	return &HeartbeatMessage{
+		Type:   HeartbeatType,
+		Sender: sender,
+	}
 }

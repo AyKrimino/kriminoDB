@@ -21,10 +21,12 @@ type Gossip struct {
 	ticker *time.Ticker
 	stopCh chan struct{}
 
-	mu             sync.RWMutex
-	peers          []string
-	store          store.DB
-	seenMessageIDs map[string]bool
+	mu               sync.RWMutex
+	peers            []string
+	store            store.DB
+	seenMessageIDs   map[string]bool
+	peersLastContact map[string]time.Time
+	warnedPeers      map[string]bool
 }
 
 func NewGossip(store store.DB, addr string) *Gossip {
@@ -32,12 +34,14 @@ func NewGossip(store store.DB, addr string) *Gossip {
 	peers = append(peers, addr)
 
 	return &Gossip{
-		addr:           addr,
-		ticker:         time.NewTicker(2 * time.Second),
-		stopCh:         make(chan struct{}),
-		store:          store,
-		peers:          peers,
-		seenMessageIDs: make(map[string]bool, 1000),
+		addr:             addr,
+		ticker:           time.NewTicker(2 * time.Second),
+		stopCh:           make(chan struct{}),
+		store:            store,
+		peers:            peers,
+		seenMessageIDs:   make(map[string]bool, 1000),
+		peersLastContact: make(map[string]time.Time, 20),
+		warnedPeers:      make(map[string]bool, 20),
 	}
 }
 
@@ -97,6 +101,8 @@ func (g *Gossip) handleConn(conn net.Conn) {
 			g.handleUpdateMessage(conn, line)
 		case GossipType:
 			g.handleGossipMessage(conn, line)
+		case HeartbeatType:
+			g.handleHeartbeatMessage(line)
 		default:
 			log.Printf("[GOSSIP] Unknown message type: %s", header.Type)
 		}
@@ -106,6 +112,16 @@ func (g *Gossip) handleConn(conn net.Conn) {
 	}
 }
 
+func (g *Gossip) handleHeartbeatMessage(line []byte) {
+	var heartbeatMsg HeartbeatMessage
+	if err := json.Unmarshal(line, &heartbeatMsg); err != nil {
+		log.Printf("[GOSSIP] Unmarshal error: %s", err)
+		return
+	}
+	log.Printf("[GOSSIP] Heartbeat from %s", heartbeatMsg.Sender)
+	g.updatePeersLastSeenTime(heartbeatMsg.Sender)
+}
+
 func (g *Gossip) handleUpdateMessage(conn net.Conn, line []byte) {
 	var updateMsg UpdateMessage
 	if err := json.Unmarshal(line, &updateMsg); err != nil {
@@ -113,6 +129,8 @@ func (g *Gossip) handleUpdateMessage(conn net.Conn, line []byte) {
 		return
 	}
 	log.Printf("[GOSSIP] %+v received from %s", updateMsg, conn.RemoteAddr().String())
+
+	g.updatePeersLastSeenTime(conn.RemoteAddr().String())
 
 	_, exists := g.store.Get(updateMsg.Key)
 	if !exists {
@@ -135,6 +153,7 @@ func (g *Gossip) handleJoinMessage(conn net.Conn, line []byte) {
 	log.Printf("[GOSSIP] %+v received from %s", joinMsg, conn.RemoteAddr().String())
 
 	g.updatePeersList(joinMsg.Sender)
+	g.updatePeersLastSeenTime(joinMsg.Sender)
 
 	g.mu.RLock()
 	joinResMsg := NewJoinResponseMessage(g.peers)
@@ -149,6 +168,7 @@ func (g *Gossip) handleJoinMessage(conn net.Conn, line []byte) {
 	n, err := conn.Write(joinResMsgB)
 	if err != nil {
 		log.Printf("[GOSSIP] conn write error: %s", err)
+		return
 	}
 	log.Printf("[GOSSIP] %s sent from %s to %s", joinResMsgB[:n], g.addr, conn.RemoteAddr().String())
 }
@@ -184,16 +204,24 @@ func (g *Gossip) handleGossipMessage(conn net.Conn, line []byte) {
 	}
 
 	g.updatePeersList(gossipMsg.Peers...)
+	g.updatePeersLastSeenTime(gossipMsg.Peers...)
 }
 
 // peerListChanged checks if peers argument has peers
 // that does not exist in the Gossip peers list
 func (g *Gossip) peerListChanged(peers []string) bool {
+	if len(peers) != len(g.peers) {
+		return true
+	}
+
+	m := make(map[string]bool, len(g.peers))
+	for _, p := range g.peers {
+		m[p] = true
+	}
+
 	for _, p := range peers {
-		for _, pp := range g.peers {
-			if p != pp {
-				return true
-			}
+		if _, ok := m[p]; !ok {
+			return true
 		}
 	}
 	return false
@@ -244,10 +272,21 @@ func (g *Gossip) Join(bootstrapAddr string) {
 		g.mu.RUnlock()
 
 		g.updatePeersList(joinResMsg.Peers...)
+		g.updatePeersLastSeenTime(joinResMsg.Peers...)
 	}
 	if err := scanner.Err(); err != nil {
 		log.Printf("[GOSSIP] Scanner error: %s", err)
 		return
+	}
+}
+
+func (g *Gossip) updatePeersLastSeenTime(peers ...string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	now := time.Now()
+	for _, p := range peers {
+		g.peersLastContact[p] = now
 	}
 }
 
@@ -325,6 +364,91 @@ func (g *Gossip) Replicate(key string, dataValue store.DataValue) {
 	g.pushUpdate(key, dataValue)
 }
 
+func (g *Gossip) gossipToRandomPeers(pendingUpdates map[string]store.DataValue) {
+	g.mu.RLock()
+	if len(g.peers) == 0 {
+		return
+	}
+	g.mu.RUnlock()
+
+	randomPeers := g.getDistinctRandomPeers(3)
+	for _, p := range randomPeers {
+		conn, err := net.DialTimeout("tcp", p, 3*time.Second)
+		if err != nil {
+			log.Printf("[GOSSIP] TCP dial error: %s", err)
+
+			removed := g.removeDeadPeer(p)
+			if removed {
+				log.Printf("[GOSSIP] removed dead peer %s from peer list", p)
+			}
+			continue
+		}
+
+		gossipMsg := NewGossipMessage(pendingUpdates, g.peers)
+		gossipMsgB, err := json.Marshal(gossipMsg)
+		if err != nil {
+			log.Printf("[GOSSIP] Marshal error: %s", err)
+			continue
+		}
+
+		_, err = conn.Write(gossipMsgB)
+		if err != nil {
+			log.Printf("[GOSSIP] conn write error: %s", err)
+			continue
+		}
+
+		conn.Close()
+	}
+}
+
+func (g *Gossip) checkPeerLiveness() {
+	g.mu.RLock()
+	peersSnapshot := make([]string, len(g.peers))
+	copy(peersSnapshot, g.peers)
+	g.mu.RUnlock()
+
+	for _, p := range peersSnapshot {
+		if p == g.addr {
+			continue
+		}
+
+		g.mu.RLock()
+		t, ok := g.peersLastContact[p]
+		if !ok {
+			continue
+		}
+		g.mu.RUnlock()
+
+		since := time.Since(t)
+
+		if since < 10*time.Second {
+			g.mu.Lock()
+			delete(g.warnedPeers, p)
+			g.mu.Unlock()
+		}
+
+		if since > 10*time.Second && since <= 20*time.Second {
+			g.mu.RLock()
+			alreadyWarned := g.warnedPeers[p]
+			g.mu.RUnlock()
+
+			if !alreadyWarned {
+				g.mu.Lock()
+				g.warnedPeers[p] = true
+				g.mu.Unlock()
+				log.Printf("[GOSSIP] [WARN] Peer %s unresponsive - removing in %v", p, 20*time.Second-since)
+			}
+		}
+
+		if since > 20*time.Second {
+			removed := g.removeDeadPeer(p)
+			if removed {
+				log.Printf("[GOSSIP] removed dead peer %s from peer list", p)
+			}
+		}
+	}
+}
+
 func (g *Gossip) sendGossip() {
 	defer close(g.stopCh)
 
@@ -335,36 +459,11 @@ func (g *Gossip) sendGossip() {
 			return
 		case <-g.ticker.C:
 			pendingUpdates := g.store.(*store.Store).GetPendingUpdates()
-			if len(g.peers) > 0 {
-				randomPeers := g.getDistinctRandomPeers(3)
-				for _, p := range randomPeers {
-					conn, err := net.DialTimeout("tcp", p, 3*time.Second)
-					if err != nil {
-						log.Printf("[GOSSIP] TCP dial error: %s", err)
 
-						removed := g.removeDeadPeer(p)
-						if removed {
-							log.Printf("[GOSSIP] removed dead peer %s from peer list", p)
-						}
-						continue
-					}
+			g.sendHeartbeat()
 
-					gossipMsg := NewGossipMessage(pendingUpdates, g.peers)
-					gossipMsgB, err := json.Marshal(gossipMsg)
-					if err != nil {
-						log.Printf("[GOSSIP] Marshal error: %s", err)
-						continue
-					}
-
-					_, err = conn.Write(gossipMsgB)
-					if err != nil {
-						log.Printf("[GOSSIP] conn write error: %s", err)
-						continue
-					}
-
-					conn.Close()
-				}
-			}
+			g.gossipToRandomPeers(pendingUpdates)
+			g.checkPeerLiveness()
 		}
 	}
 }
@@ -380,7 +479,39 @@ func (g *Gossip) removeDeadPeer(peer string) bool {
 
 	if removeIdx != -1 {
 		g.peers = append(g.peers[:removeIdx], g.peers[removeIdx+1:]...)
+		delete(g.peersLastContact, peer)
 		return true
 	}
 	return false
+}
+
+func (g *Gossip) sendHeartbeat() {
+	peers := g.getDistinctRandomPeers(1)
+	if len(peers) == 0 {
+		return
+	}
+
+	peer := peers[0]
+
+	conn, err := net.DialTimeout("tcp", peer, 3*time.Second)
+	if err != nil {
+		log.Printf("[GOSSIP] TCP dial error: %s", err)
+		g.removeDeadPeer(peer)
+		return
+	}
+	defer conn.Close()
+
+	heartbeatMsg := NewHeartbeatMessage(g.addr)
+	heartbeatMsgB, err := json.Marshal(heartbeatMsg)
+	if err != nil {
+		log.Printf("[GOSSIP] Marshal error: %s", err)
+		return
+	}
+
+	_, err = conn.Write(heartbeatMsgB)
+	if err != nil {
+		log.Printf("[GOSSIP] conn write error: %s", err)
+		return
+	}
+	// log.Printf("[GOSSIP] %s sent from %s to %s", heartbeatMsgB[:n], g.addr, peer)
 }
