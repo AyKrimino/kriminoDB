@@ -436,7 +436,7 @@ func (g *Gossip) checkPeerLiveness() {
 				g.mu.Lock()
 				g.warnedPeers[p] = true
 				g.mu.Unlock()
-				log.Printf("[GOSSIP] [WARN] Peer %s unresponsive - removing in %v", p, 20*time.Second-since)
+				log.Printf("[GOSSIP] [WARN] Peer %s unresponsive - removing in %v if no connection happens", p, 20*time.Second-since)
 			}
 		}
 
@@ -460,12 +460,11 @@ func (g *Gossip) checkPeerLiveness() {
 }
 
 func (g *Gossip) sendGossip() {
-	defer close(g.stopCh)
-
 	for {
 		select {
 		case <-g.stopCh:
 			g.ticker.Stop()
+			log.Println("[GOSSIP] sendGossip loop stopped gracefully")
 			return
 		case <-g.ticker.C:
 			pendingUpdates := g.store.(*store.Store).GetPendingUpdates()
@@ -524,4 +523,8 @@ func (g *Gossip) sendHeartbeat() {
 		return
 	}
 	// log.Printf("[GOSSIP] %s sent from %s to %s", heartbeatMsgB[:n], g.addr, peer)
+}
+
+func (g *Gossip) Stop() {
+	close(g.stopCh)
 }

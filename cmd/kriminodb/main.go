@@ -4,6 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/AyKrimino/kriminoDB/internal/gossip"
 	"github.com/AyKrimino/kriminoDB/internal/server"
@@ -29,13 +32,11 @@ func main() {
 	st.(*store.Store).SetReplicator(g)
 
 	ready := make(chan struct{})
-
 	go func() {
 		if err := g.ListenAndAccept(ready); err != nil {
 			log.Fatalf("[GOSSIP] Fatal error: %v", err)
 		}
 	}()
-
 	<-ready
 
 	if *bootstrapAddr != "" {
@@ -43,9 +44,23 @@ func main() {
 		g.Join(*bootstrapAddr)
 	}
 
-	srv := server.NewServer(st, conf)
-	err := srv.Start()
-	if err != nil {
-		log.Fatal(err)
+	serverErr := make(chan error, 1)
+	go func() {
+		srv := server.NewServer(st, conf)
+		serverErr <- srv.Start()
+	}()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case err := <-serverErr:
+		if err != nil {
+			log.Printf("[SERVER] Error: %s", err)
+		}
+	case sig := <-sigCh:
+		log.Printf("[SERVER] Received signal %s, shutting down...", sig)
 	}
+
+	g.Stop()
 }
