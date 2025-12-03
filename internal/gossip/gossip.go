@@ -415,6 +415,16 @@ func (g *Gossip) checkPeerLiveness() {
 		g.mu.RLock()
 		t, ok := g.peersLastContact[p]
 		if !ok {
+			conn, err := net.DialTimeout("tcp", p, 1*time.Second)
+			if err != nil {
+				removed := g.removeDeadPeer(p)
+				if removed {
+					log.Printf("[GOSSIP] removed dead peer %s from peer list", p)
+				}
+			} else {
+				conn.Close()
+				g.updatePeersLastSeenTime(p)
+			}
 			continue
 		}
 		g.mu.RUnlock()
@@ -443,10 +453,7 @@ func (g *Gossip) checkPeerLiveness() {
 		if since > 20*time.Second {
 			conn, err := net.DialTimeout("tcp", p, 3*time.Second)
 			if err == nil {
-				g.mu.Lock()
-				g.peersLastContact[p] = time.Now()
-				g.mu.Unlock()
-
+				g.updatePeersLastSeenTime(p)
 				conn.Close()
 				continue
 			}
