@@ -469,7 +469,7 @@ func (g *Gossip) sendGossip() {
 		case <-g.ticker.C:
 			pendingUpdates := g.store.(*store.Store).GetPendingUpdates()
 
-			g.sendHeartbeat()
+			g.sendHeartbeats()
 
 			g.gossipToRandomPeers(pendingUpdates)
 			g.checkPeerLiveness()
@@ -478,8 +478,13 @@ func (g *Gossip) sendGossip() {
 }
 
 func (g *Gossip) removeDeadPeer(peer string) bool {
+	g.mu.RLock()
+	peers := make([]string, len(g.peers))
+	copy(peers, g.peers)
+	g.mu.RUnlock()
+
 	removeIdx := -1
-	for idx, p := range g.peers {
+	for idx, p := range peers {
 		if p == peer {
 			removeIdx = idx
 			break
@@ -487,42 +492,46 @@ func (g *Gossip) removeDeadPeer(peer string) bool {
 	}
 
 	if removeIdx != -1 {
+		g.mu.Lock()
 		g.peers = append(g.peers[:removeIdx], g.peers[removeIdx+1:]...)
 		delete(g.peersLastContact, peer)
+		g.mu.Unlock()
 		return true
 	}
 	return false
 }
 
-func (g *Gossip) sendHeartbeat() {
-	peers := g.getDistinctRandomPeers(1)
-	if len(peers) == 0 {
-		return
-	}
+func (g *Gossip) sendHeartbeats() {
+	g.mu.RLock()
+	peers := make([]string, len(g.peers))
+	copy(peers, g.peers)
+	g.mu.RUnlock()
 
-	peer := peers[0]
+	for _, peer := range peers {
+		if peer == g.addr {
+			continue
+		}
 
-	conn, err := net.DialTimeout("tcp", peer, 3*time.Second)
-	if err != nil {
-		log.Printf("[GOSSIP] TCP dial error: %s", err)
-		g.removeDeadPeer(peer)
-		return
-	}
-	defer conn.Close()
+		conn, err := net.DialTimeout("tcp", peer, 3*time.Second)
+		if err != nil {
+			log.Printf("[GOSSIP] Hearbeat failed to %s: %s", peer, err)
+			continue
+		}
+		defer conn.Close()
 
-	heartbeatMsg := NewHeartbeatMessage(g.addr)
-	heartbeatMsgB, err := json.Marshal(heartbeatMsg)
-	if err != nil {
-		log.Printf("[GOSSIP] Marshal error: %s", err)
-		return
-	}
+		heartbeatMsg := NewHeartbeatMessage(g.addr)
+		heartbeatMsgB, err := json.Marshal(heartbeatMsg)
+		if err != nil {
+			log.Printf("[GOSSIP] Marshal error: %s", err)
+			continue
+		}
 
-	_, err = conn.Write(heartbeatMsgB)
-	if err != nil {
-		log.Printf("[GOSSIP] conn write error: %s", err)
-		return
+		_, err = conn.Write(heartbeatMsgB)
+		if err != nil {
+			log.Printf("[GOSSIP] conn write error: %s", err)
+			continue
+		}
 	}
-	// log.Printf("[GOSSIP] %s sent from %s to %s", heartbeatMsgB[:n], g.addr, peer)
 }
 
 func (g *Gossip) Stop() {
