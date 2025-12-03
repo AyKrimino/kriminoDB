@@ -441,6 +441,16 @@ func (g *Gossip) checkPeerLiveness() {
 		}
 
 		if since > 20*time.Second {
+			conn, err := net.DialTimeout("tcp", p, 3*time.Second)
+			if err == nil {
+				g.mu.Lock()
+				g.peersLastContact[p] = time.Now()
+				g.mu.Unlock()
+
+				conn.Close()
+				continue
+			}
+
 			removed := g.removeDeadPeer(p)
 			if removed {
 				log.Printf("[GOSSIP] removed dead peer %s from peer list", p)
