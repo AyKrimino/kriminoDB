@@ -414,6 +414,7 @@ func (g *Gossip) checkPeerLiveness() {
 
 		g.mu.RLock()
 		t, ok := g.peersLastContact[p]
+		g.mu.RUnlock()
 		if !ok {
 			conn, err := net.DialTimeout("tcp", p, 1*time.Second)
 			if err != nil {
@@ -427,7 +428,6 @@ func (g *Gossip) checkPeerLiveness() {
 			}
 			continue
 		}
-		g.mu.RUnlock()
 
 		since := time.Since(t)
 
@@ -524,7 +524,6 @@ func (g *Gossip) sendHeartbeats() {
 			log.Printf("[GOSSIP] Hearbeat failed to %s: %s", peer, err)
 			continue
 		}
-		defer conn.Close()
 
 		heartbeatMsg := NewHeartbeatMessage(g.addr)
 		heartbeatMsgB, err := json.Marshal(heartbeatMsg)
@@ -538,6 +537,7 @@ func (g *Gossip) sendHeartbeats() {
 			log.Printf("[GOSSIP] conn write error: %s", err)
 			continue
 		}
+		conn.Close()
 	}
 }
 
