@@ -230,7 +230,7 @@ func (g *Gossip) peerListChanged(peers []string) bool {
 // Join connects this Gossip node to a bootstrap peer at the given address.
 // It sends a JOIN message and updates its peers list with the JOIN_RESPONSE.
 func (g *Gossip) Join(bootstrapAddr string) {
-	conn, err := net.DialTimeout("tcp", bootstrapAddr, 3*time.Second)
+	conn, err := net.DialTimeout("tcp", bootstrapAddr, 300*time.Millisecond)
 	if err != nil {
 		log.Printf("[GOSSIP] TCP dial error: %s", err)
 		return
@@ -330,7 +330,7 @@ func (g *Gossip) pushUpdate(key string, dataValue store.DataValue) {
 	randomPeers := g.getDistinctRandomPeers(2)
 
 	for _, p := range randomPeers {
-		conn, err := net.DialTimeout("tcp", p, 3*time.Second)
+		conn, err := net.DialTimeout("tcp", p, 300*time.Millisecond)
 		if err != nil {
 			log.Printf("[GOSSIP] TCP dial error: %s", err)
 
@@ -373,7 +373,7 @@ func (g *Gossip) gossipToRandomPeers(pendingUpdates map[string]store.DataValue) 
 
 	randomPeers := g.getDistinctRandomPeers(3)
 	for _, p := range randomPeers {
-		conn, err := net.DialTimeout("tcp", p, 3*time.Second)
+		conn, err := net.DialTimeout("tcp", p, 300*time.Millisecond)
 		if err != nil {
 			log.Printf("[GOSSIP] TCP dial error: %s", err)
 
@@ -416,7 +416,7 @@ func (g *Gossip) checkPeerLiveness() {
 		t, ok := g.peersLastContact[p]
 		g.mu.RUnlock()
 		if !ok {
-			conn, err := net.DialTimeout("tcp", p, 1*time.Second)
+			conn, err := net.DialTimeout("tcp", p, 300*time.Millisecond)
 			if err != nil {
 				removed := g.removeDeadPeer(p)
 				if removed {
@@ -451,7 +451,7 @@ func (g *Gossip) checkPeerLiveness() {
 		}
 
 		if since > 20*time.Second {
-			conn, err := net.DialTimeout("tcp", p, 3*time.Second)
+			conn, err := net.DialTimeout("tcp", p, 300*time.Millisecond)
 			if err == nil {
 				g.updatePeersLastSeenTime(p)
 				conn.Close()
@@ -476,10 +476,9 @@ func (g *Gossip) sendGossip() {
 		case <-g.ticker.C:
 			pendingUpdates := g.store.(*store.Store).GetPendingUpdates()
 
-			g.sendHeartbeats()
-
-			g.gossipToRandomPeers(pendingUpdates)
-			g.checkPeerLiveness()
+			go g.sendHeartbeats()
+			go g.gossipToRandomPeers(pendingUpdates)
+			go g.checkPeerLiveness()
 		}
 	}
 }
@@ -519,7 +518,7 @@ func (g *Gossip) sendHeartbeats() {
 			continue
 		}
 
-		conn, err := net.DialTimeout("tcp", peer, 3*time.Second)
+		conn, err := net.DialTimeout("tcp", peer, 300*time.Millisecond)
 		if err != nil {
 			log.Printf("[GOSSIP] Hearbeat failed to %s: %s", peer, err)
 			continue
@@ -531,6 +530,8 @@ func (g *Gossip) sendHeartbeats() {
 			log.Printf("[GOSSIP] Marshal error: %s", err)
 			continue
 		}
+
+		conn.SetWriteDeadline(time.Now().Add(300 * time.Millisecond))
 
 		_, err = conn.Write(heartbeatMsgB)
 		if err != nil {
