@@ -24,7 +24,7 @@ type Gossip struct {
 	mu               sync.RWMutex
 	peers            []string
 	store            store.DB
-	seenMessageIDs   map[string]bool
+	seenMessageIDs   map[string]time.Time
 	peersLastContact map[string]time.Time
 	warnedPeers      map[string]bool
 }
@@ -39,7 +39,7 @@ func NewGossip(store store.DB, addr string) *Gossip {
 		stopCh:           make(chan struct{}),
 		store:            store,
 		peers:            peers,
-		seenMessageIDs:   make(map[string]bool, 1000),
+		seenMessageIDs:   make(map[string]time.Time, 1000),
 		peersLastContact: make(map[string]time.Time, 20),
 		warnedPeers:      make(map[string]bool, 20),
 	}
@@ -177,10 +177,11 @@ func (g *Gossip) markSeen(id string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	if g.seenMessageIDs[id] {
+	_, ok := g.seenMessageIDs[id]
+	if ok {
 		return false
 	}
-	g.seenMessageIDs[id] = true
+	g.seenMessageIDs[id] = time.Now()
 	return true
 }
 
@@ -479,6 +480,20 @@ func (g *Gossip) sendGossip() {
 			go g.sendHeartbeats()
 			go g.gossipToRandomPeers(pendingUpdates)
 			go g.checkPeerLiveness()
+			go g.pruneSeenMessageIDs()
+		}
+	}
+}
+
+func (g *Gossip) pruneSeenMessageIDs() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	now := time.Now()
+	for id, timestamp := range g.seenMessageIDs {
+		if now.Sub(timestamp) > 60*time.Second {
+			log.Printf("[GOSSIP] pruning seen message ID %s (older than 60s)", id)
+			delete(g.seenMessageIDs, id)
 		}
 	}
 }
