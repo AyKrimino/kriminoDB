@@ -118,7 +118,6 @@ func (g *Gossip) handleHeartbeatMessage(line []byte) {
 		log.Printf("[GOSSIP] Unmarshal error: %s", err)
 		return
 	}
-	log.Printf("[GOSSIP] Heartbeat from %s", heartbeatMsg.Sender)
 	g.updatePeersLastSeenTime(heartbeatMsg.Sender)
 }
 
@@ -492,7 +491,6 @@ func (g *Gossip) pruneSeenMessageIDs() {
 	now := time.Now()
 	for id, timestamp := range g.seenMessageIDs {
 		if now.Sub(timestamp) > 60*time.Second {
-			log.Printf("[GOSSIP] pruning seen message ID %s (older than 60s)", id)
 			delete(g.seenMessageIDs, id)
 		}
 	}
