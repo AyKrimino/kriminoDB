@@ -11,6 +11,20 @@ kriminoDB is an in-memory key-value store built in Go with distributed replicati
 - **Graceful shutdown** handling
 - **Memory management** with TTL for message deduplication
 
+## Architecture Overview
+
+kriminoDB uses a simple gossip-based cluster architecture where nodes exchange:
+- JOIN / JOIN_RESPONSE for membership
+- Heartbeats for liveness detection
+- UPDATE messages for data replication
+- GOSSIP pushes for disseminating pending updates
+
+Below is the current 4-node topology:
+
+<p align="center">
+  <img src="./docs/architecture/gossip-system.svg" width="1400" />
+</p>
+
 ## Quick Start
 
 ### Prerequisites
