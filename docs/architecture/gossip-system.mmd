@@ -1,0 +1,55 @@
+---
+config:
+  theme: neo-dark
+  look: neo
+---
+flowchart LR
+
+subgraph N1["Node 1 (client:3000, peer:4000)"]
+    A1[TCP Listener]
+    B1[Gossip Engine<br/>- Heartbeat<br/>- Gossip Push<br/>- Replication<br/>- Seen IDs <br/>- Peer List]
+    C1[Store K/V]
+end
+
+subgraph N2["Node 2 (client:3001, peer:4001)"]
+    A2[TCP Listener]
+    B2[Gossip Engine<br/>- Heartbeat<br/>- Gossip Push<br/>- Replication<br/>- Seen IDs<br/>- Peer List]
+    C2[Store K/V]
+end
+
+subgraph N3["Node 3 (client:3002, peer:4002)"]
+    A3[TCP Listener]
+    B3[Gossip Engine<br/>- Heartbeat<br/>- Gossip Push<br/>- Replication<br/>- Seen IDs<br/>- Peer List]
+    C3[Store K/V]
+end
+
+subgraph N4["Node 4 (client:3003, peer:4003)"]
+    A4[TCP Listener]
+    B4[Gossip Engine<br/>- Heartbeat<br/>- Gossip Push<br/>- Replication<br/>- Seen IDs<br/>- Peer List]
+    C4[Store K/V]
+end
+
+N2 -->|JOIN| N1
+N3 -->|JOIN| N1
+N4 -->|JOIN| N1
+
+N1 -->|JOIN_RESPONSE| N2
+N1 -->|JOIN_RESPONSE| N3
+N1 -->|JOIN_RESPONSE| N4
+
+N1 <-->|HEARTBEAT| N2
+N2 <-->|HEARTBEAT| N3
+N3 <-->|HEARTBEAT| N4
+N4 <-->|HEARTBEAT| N1
+
+N1 -->|UPDATE| N2
+N2 -->|UPDATE| N3
+N3 -->|UPDATE| N4
+N4 -->|UPDATE| N1
+
+N1 -->|GOSSIP| N2
+N2 -->|GOSSIP| N3
+N3 -->|GOSSIP| N4
+N4 -->|GOSSIP| N1
+
+N4 -.-x|Dead after timeout| N1
